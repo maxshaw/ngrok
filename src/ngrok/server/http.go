@@ -78,7 +78,8 @@ func httpHandler(c conn.Conn, proto string) {
 
 	// read out the Host header and auth from the request
 	host := strings.ToLower(vhostConn.Host())
-	auth := vhostConn.Request.Header.Get("Authorization")
+    auth := vhostConn.Request.Header.Get("Authorization")
+	port := vhostConn.Request.Header.Get("X-Port")
 
 	// done reading mux data, free up the request memory
 	vhostConn.Free()
@@ -90,10 +91,24 @@ func httpHandler(c conn.Conn, proto string) {
 	c.Debug("Found hostname %s in request", host)
 	tunnel := tunnelRegistry.Get(fmt.Sprintf("%s://%s", proto, host))
 	if tunnel == nil {
-		c.Info("No tunnel found for hostname %s", host)
-		c.Write([]byte(fmt.Sprintf(NotFound, len(host)+18, host)))
-		return
-	}
+        if !strings.Contains(host, ":") {
+            if port == "" {
+                addr := strings.Split(c.LocalAddr().String(), ":"); if len(addr) == 2 {
+                    port = addr[1]
+                }
+            }
+            tunnel = tunnelRegistry.Get(fmt.Sprintf("%s://%s:%s", proto, host, port))
+            if tunnel == nil {
+                c.Info("No tunnel found for hostname %s:%s", host, port)
+            }
+        } else {
+            c.Info("No tunnel found for hostname %s", host)
+        }
+        if tunnel == nil {
+            c.Write([]byte(fmt.Sprintf(NotFound, len(host)+18, host)))
+            return
+        }
+    }
 
 	// If the client specified http auth and it doesn't match this request's auth
 	// then fail the request with 401 Not Authorized and request the client reissue the
